@@ -4,7 +4,13 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-enum MapType { apple, google, amap, baidu, waze, yandexNavi, yandexMaps }
+enum MapType {
+  apple,
+  apple_directions_mode,
+  google,
+  google_navigation_mode,
+  waze
+}
 
 String _enumToString(o) => o.toString().split('.').last;
 
@@ -51,6 +57,19 @@ class AvailableMap {
     );
   }
 
+  Future<void> showMarkersForNavigation({
+    @required Coords destination,
+    @required String title,
+    @required String description,
+  }) {
+    return MapLauncher.launchMapForNavigation(
+      mapType: mapType,
+      destination: destination,
+      title: title,
+      description: description,
+    );
+  }
+
   @override
   String toString() {
     return 'AvailableMap { mapName: $mapName, mapType: ${_enumToString(mapType)} }';
@@ -58,29 +77,43 @@ class AvailableMap {
 }
 
 String _getMapUrl(
-  MapType mapType,
-  Coords coords, [
-  String title,
-  String description,
-]) {
+    MapType mapType,
+    Coords coords, [
+      String title,
+      String description,
+    ]) {
   switch (mapType) {
     case MapType.google:
       if (Platform.isIOS) {
         return 'comgooglemaps://?q=${coords.latitude},${coords.longitude}($title)';
       }
       return 'geo:0,0?q=${coords.latitude},${coords.longitude}($title)';
-    case MapType.amap:
-      return '${Platform.isIOS ? 'ios' : 'android'}amap://viewMap?sourceApplication=map_launcher&poiname=$title&lat=${coords.latitude}&lon=${coords.longitude}&zoom=18&dev=0';
-    case MapType.baidu:
-      return 'baidumap://map/marker?location=${coords.latitude},${coords.longitude}&title=$title&content=$description&traffic=on&src=com.map_launcher&coord_type=gcj02&zoom=18';
     case MapType.apple:
       return 'http://maps.apple.com/maps?saddr=${coords.latitude},${coords.longitude}';
     case MapType.waze:
       return 'waze://?ll=${coords.latitude},${coords.longitude}&zoom=10';
-    case MapType.yandexNavi:
-      return 'yandexnavi://show_point_on_map?lat=${coords.latitude}&lon=${coords.longitude}&zoom=16&no-balloon=0&desc=$title';
-    case MapType.yandexMaps:
-      return 'yandexmaps://maps.yandex.ru/?pt=${coords.longitude},${coords.latitude}&z=16&l=map';
+    default:
+      return null;
+  }
+}
+
+String _getMapUrlForNavigation(
+    MapType mapType,
+    Coords endCoordinates, [
+      String title,
+      String description,
+    ]) {
+  switch (mapType) {
+    case MapType.google_navigation_mode:
+      if (Platform.isIOS) {
+        // See: https://developers.google.com/maps/documentation/urls/ios-urlscheme
+        return 'comgooglemaps://?daddr=${endCoordinates.latitude},${endCoordinates.longitude}&directionsmode=driving($title)';
+      }
+      // See: https://developers.google.com/maps/documentation/urls/android-intents#launch_turn-by-turn_navigation
+      return 'google.navigation:q=${endCoordinates.latitude},${endCoordinates.longitude}($title)';
+    case MapType.apple_directions_mode:
+    // See: https://developer.apple.com/library/archive/featuredarticles/iPhoneURLScheme_Reference/MapLinks/MapLinks.html
+      return 'http://maps.apple.com/maps?daddr=${endCoordinates.latitude},${endCoordinates.longitude}&dirflg=d';
     default:
       return null;
   }
@@ -112,6 +145,27 @@ class MapLauncher {
       'longitude': coords.longitude.toString(),
     };
     return _channel.invokeMethod('launchMap', args);
+  }
+
+  static Future<dynamic> launchMapForNavigation({
+    @required MapType mapType,
+    @required Coords destination,
+    @required String title,
+    @required String description,
+  }) async {
+    final url = _getMapUrlForNavigation(
+        mapType, destination, title, description);
+    final Map<String, String> args = {
+      'mapType': _enumToString(mapType),
+      'url': Uri.encodeFull(url),
+      'title': title,
+      'description': description,
+      'latitude': destination.latitude.toString(),
+      'longitude': destination.longitude.toString(),
+    };
+    return Platform.isIOS
+        ? _channel.invokeMethod('launchMapForNav', args)
+        : _channel.invokeMethod('launchMap', args);
   }
 
   static Future<bool> isMapAvailable(MapType mapType) async {
